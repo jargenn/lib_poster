@@ -1,5 +1,14 @@
 {
   description = "Consumption-independent poster application library";
+  nixConfig = {
+    extra-substituters = [
+      "https://devcache.lautaroacosta.com/dev-cache"
+    ];
+
+    extra-trusted-public-keys = [
+      "dev-cache:85CSifuHZU+7bkVNRmVtFoSu+FDpFCGedWlm/s30irI="
+    ];
+  };
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";

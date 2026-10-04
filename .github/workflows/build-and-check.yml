@@ -38,7 +38,8 @@ jobs:
           cat > ~/.config/nix/nix.conf <<EOF
           experimental-features = nix-command flakes
           substituters = https://devcache.lautaroacosta.com/dev-cache https://cache.nixos.org/
-          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= dev-cache:lV4Nej+9+n3g2uAgGKIBpaffUvzKR1essUx1opU33/0=
+          trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= dev-cache:85CSifuHZU+7bkVNRmVtFoSu+FDpFCGedWlm/s30irI=
+
           EOF
 
       - name: Build
