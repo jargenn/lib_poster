@@ -1,0 +1,5 @@
+/target
+API_READINESS_PLAN.md
+/.direnv/
+/.cargo/
+*.env
