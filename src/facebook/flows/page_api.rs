@@ -83,16 +83,21 @@ pub async fn get_facebook_pages(
 ) -> Result<FacebookPages, Error> {
     tracing::info!(%user_id, "requesting pages information of the user");
 
-    let endpoint = page_access_token_endpoint(version, user_id, user_access_token, facebook_uri);
-    debug!(%endpoint, "The endpoint used");
+    let endpoint = Url::parse_with_params(
+        &page_access_token_endpoint(version, user_id, user_access_token, facebook_uri),
+        &[(
+            "fields",
+            "id,name,access_token,category,category_list,tasks",
+        )],
+    )?
+    .to_string();
+    debug!("Requesting Facebook page credentials");
 
     let res = client.get(endpoint).send().await?;
 
     let status = res.status();
 
     let text = res.text().await?;
-    debug!(body = text, "Response Body");
-
     if !status.is_success() {
         let graph_error = GraphApiError::from_response_body(&text)?;
 
@@ -144,7 +149,6 @@ pub async fn get_page_credentials(
 // }
 
 #[instrument(name = "Posting debug!", level = "debug", skip(client, version), fields(
-        user_access_token=%user_access_token,
         user_id=%user_id,
         page_id=%page_id,
 ))]
@@ -176,10 +180,7 @@ pub async fn post_to_page(
         photos_endpoint(version, page_id, facebook_uri)
     };
 
-    debug!(%endpoint, "The endpoint used");
-
     let payload = post.to_payload(page_access_token)?;
-    debug!("Payload sent {}", payload);
 
     let res = client.post(endpoint).json(&payload).send().await?;
 
@@ -210,7 +211,7 @@ pub async fn post_to_page(
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostData {
     pub created_time: String,
-    pub message: String,
+    pub message: Option<String>,
     #[serde(rename = "id")]
     pub page_post_id: String,
 }
@@ -221,19 +222,21 @@ pub async fn get_page_posts(
     page_id: &str,
     page_access_token: &str,
     facebook_uri: Url,
-) -> Result<PostData, Error> {
-    let endpoint = format!(
-        "{}?access_token={page_access_token}",
-        feed_endpoint(version, page_id, facebook_uri)
-    );
-    debug!(%endpoint, "The endpoint used");
+) -> Result<Vec<PostData>, Error> {
+    let endpoint = Url::parse_with_params(
+        &feed_endpoint(version, page_id, facebook_uri),
+        &[
+            ("access_token", page_access_token),
+            ("fields", "id,message,created_time"),
+        ],
+    )?
+    .to_string();
+    debug!("Requesting Facebook Page feed");
 
     let res = client.get(endpoint).send().await?;
 
     let status = res.status();
     let text = res.text().await?;
-    debug!(body = text, "Response Body");
-
     if !status.is_success() {
         let graph_error = GraphApiError::from_response_body(&text)?;
         tracing::warn!(
@@ -244,5 +247,9 @@ pub async fn get_page_posts(
         return Err(graph_error)?;
     }
 
-    Ok(serde_json::from_str::<PostData>(&text)?)
+    #[derive(Deserialize)]
+    struct FeedResponse {
+        data: Vec<PostData>,
+    }
+    Ok(serde_json::from_str::<FeedResponse>(&text)?.data)
 }

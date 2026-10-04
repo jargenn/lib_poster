@@ -12,7 +12,8 @@ use url::Url;
 use crate::facebook::Error;
 
 const MIN_DELAY_SECS: i64 = 600; // 10 Minutes
-const MAX_DELAY_SECS: i64 = 2_592_000; // 30 Days
+// The Pages posts publishing guide documents a 30 day scheduling window.
+const MAX_DELAY_SECS: i64 = 2_592_000;
 const MIN_CHARS: u64 = 10;
 const MAX_CHARS: u64 = 24_000;
 
@@ -153,6 +154,26 @@ impl FacebookPost {
         if let Some(ref url) = link {
             Url::parse(url).map_err(PostError::from)?;
         }
+        if let Some(ref media) = media {
+            if media.len() != 1 {
+                return Err(PostError::UnsupportedMedia(
+                    "A Page photo post accepts exactly one image URL".to_owned(),
+                )
+                .into());
+            }
+            if !matches!(media.first(), Some(Input::Url(_))) {
+                return Err(PostError::UnsupportedMedia(
+                    "Base64 images are not supported by the JSON publishing request".to_owned(),
+                )
+                .into());
+            }
+            if link.is_some() {
+                return Err(PostError::UnsupportedMedia(
+                    "A photo post cannot also use the feed link field".to_owned(),
+                )
+                .into());
+            }
+        }
 
         // This way I enforce the invariant of published being false if there is a
         // scheduled_publish_time passed to the Page API post endpoint. published = true would
@@ -227,8 +248,20 @@ impl FacebookPost {
             Some(list) => {
                 for media in list {
                     match media {
-                        Input::Url(url) => payload["url"] = json!(url),
-                        Input::Base64 { .. } => todo!(),
+                        Input::Url(url) => {
+                            payload["url"] = json!(url);
+                            payload["caption"] = json!(self.message);
+                            payload
+                                .as_object_mut()
+                                .expect("JSON payload is an object")
+                                .remove("message");
+                        }
+                        Input::Base64 { .. } => {
+                            return Err(PostError::UnsupportedMedia(
+                                "Base64 images require a multipart upload request".to_owned(),
+                            )
+                            .into());
+                        }
                     }
                 }
             }
@@ -247,6 +280,8 @@ pub enum PostError {
     LinkError(#[from] url::ParseError),
     #[error("{0}")]
     MessageError(String),
+    #[error("Unsupported media: {0}")]
+    UnsupportedMedia(String),
 }
 
 #[derive(Debug, thiserror::Error)]

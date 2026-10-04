@@ -51,40 +51,40 @@ impl OAuthProvider for FacebookProvider {
         app_secret: &str,
     ) -> impl std::future::Future<Output = Result<VerifiedToken, OAuthError>> + Send {
         async move {
-        let endpoint = Url::parse_with_params(
-            "https://graph.facebook.com/v24.0/debug_token",
-            &[
-                ("input_token", access_token),
-                ("access_token", &format!("{app_id}|{app_secret}")),
-            ],
-        )
-        .expect("valid Facebook debug-token URL");
-        let response = client.get(endpoint).send().await?;
-        let status = response.status();
-        let body = response.text().await?;
-        tracing::debug!(%status, %body, "Facebook debug_token verification response");
-        if !status.is_success() {
-            return Err(AuthError::InvalidToken.into());
-        }
-        let data: DebugAccessTokenResponse = serde_json::from_str(&body)?;
-        if !data.data.is_valid {
-            return Err(AuthError::InvalidToken.into());
-        }
-        if data.data.app_id != app_id {
-            return Err(AuthError::WrongApp.into());
-        }
-        let expires_at = match data.data.expires_at {
-            None | Some(0) => None,
-            Some(timestamp) => Some(UNIX_EPOCH + Duration::from_secs(timestamp)),
-        };
-        if expires_at.is_some_and(|expiration| SystemTime::now() >= expiration) {
-            return Err(AuthError::Expired.into());
-        }
-        Ok(VerifiedToken {
-            app_id: app_id.to_owned(),
-            user_id: data.data.user_id,
-            expires_at,
-        })
+            let endpoint = Url::parse_with_params(
+                "https://graph.facebook.com/v24.0/debug_token",
+                &[
+                    ("input_token", access_token),
+                    ("access_token", &format!("{app_id}|{app_secret}")),
+                ],
+            )
+            .expect("valid Facebook debug-token URL");
+            let response = client.get(endpoint).send().await?;
+            let status = response.status();
+            let body = response.text().await?;
+            tracing::debug!(%status, %body, "Facebook debug_token verification response");
+            if !status.is_success() {
+                return Err(AuthError::InvalidToken.into());
+            }
+            let data: DebugAccessTokenResponse = serde_json::from_str(&body)?;
+            if !data.data.is_valid {
+                return Err(AuthError::InvalidToken.into());
+            }
+            if data.data.app_id != app_id {
+                return Err(AuthError::WrongApp.into());
+            }
+            let expires_at = match data.data.expires_at {
+                None | Some(0) => None,
+                Some(timestamp) => Some(UNIX_EPOCH + Duration::from_secs(timestamp)),
+            };
+            if expires_at.is_some_and(|expiration| SystemTime::now() >= expiration) {
+                return Err(AuthError::Expired.into());
+            }
+            Ok(VerifiedToken {
+                app_id: app_id.to_owned(),
+                user_id: data.data.user_id,
+                expires_at,
+            })
         }
     }
 }
@@ -118,6 +118,8 @@ pub enum OAuthError {
     Json(#[from] serde_json::Error),
     #[error("OAuth provider error: {0}")]
     Provider(String),
+    #[error("OAuth state did not match the CSRF token")]
+    CsrfMismatch,
 }
 
 // /// TODO: Search for what scopes are there.
@@ -241,6 +243,11 @@ impl Authorized {
         let verified = provider
             .verify_access_token(client, &self.user_access_token, app_id, app_secret)
             .await?;
+        if verified.app_id != app_id {
+            return Err(AuthError::WrongApp.into());
+        }
+        self.app_id = verified.app_id;
+        self.user_id = verified.user_id;
         self.expires_at = verified.expires_at;
         self.last_verified_at = SystemTime::now();
 
@@ -298,16 +305,20 @@ impl OAuth<Start> {
 
     pub fn from_callback(
         code: String,
+        returned_state: &str,
         csrf_token: CsrfToken,
         redirect_uri: RedirectUri,
-    ) -> OAuth<Redirected> {
-        OAuth {
+    ) -> Result<OAuth<Redirected>, OAuthError> {
+        if returned_state != &*csrf_token {
+            return Err(OAuthError::CsrfMismatch);
+        }
+        Ok(OAuth {
             state: Redirected {
                 code,
                 redirect_uri,
                 csrf_token,
             },
-        }
+        })
     }
 }
 

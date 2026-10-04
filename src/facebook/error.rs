@@ -13,6 +13,8 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("URL error: {0}")]
+    Url(#[from] url::ParseError),
     #[error("The page ({page_id}) was not found in the pages the user ({user_id}) has access to")]
     PageNotFound { page_id: String, user_id: String },
     #[error(transparent)]
@@ -86,4 +88,3 @@ struct GraphApiErrorData {
     #[serde(rename = "fbtrace_id")]
     trace_id: String,
 }
-
